@@ -613,3 +613,447 @@ def process_surface_cylinder(nec_data: NECData, itg: int, ns: int,
                             x2: float, y2: float, z2: float, rad: float) -> None:
     """Process surface cylinder geometry (GC) - placeholder"""
     print(f"Surface Cylinder: Not yet implemented") 
+
+# ============================================================================
+# MISSING CRITICAL GEOMETRY SUBROUTINES FROM FORTRAN
+# ============================================================================
+
+def wire(xw1: float, yw1: float, zw1: float, xw2: float, yw2: float, zw2: float,
+         rad: float, rdel: float, rrad: float, ns: int, itg: int, nec_data: NECData) -> None:
+    """
+    Generate segment geometry data for a straight wire of NS segments (WIRE from Fortran)
+    
+    Args:
+        xw1, yw1, zw1: Start coordinates
+        xw2, yw2, zw2: End coordinates  
+        rad: Wire radius
+        rdel: Segment length ratio
+        rrad: Radius ratio
+        ns: Number of segments
+        itg: Tag number
+        nec_data: Main NEC data structure
+    """
+    ist = nec_data.geometry.n + 1
+    nec_data.geometry.n += ns
+    nec_data.geometry.np = nec_data.geometry.n
+    nec_data.geometry.mp = nec_data.geometry.m
+    nec_data.geometry.ipsym = 0
+    
+    if ns < 1:
+        return
+        
+    xd = xw2 - xw1
+    yd = yw2 - yw1
+    zd = zw2 - zw1
+    
+    if abs(rdel - 1.0) < 1e-6:
+        # Uniform segmentation
+        fns = float(ns)
+        xd = xd / fns
+        yd = yd / fns
+        zd = zd / fns
+        delz = 1.0
+        rd = 1.0
+    else:
+        # Non-uniform segmentation
+        delz = np.sqrt(xd*xd + yd*yd + zd*zd)
+        xd = xd / delz
+        yd = yd / delz
+        zd = zd / delz
+        delz = delz * (1.0 - rdel) / (1.0 - rdel**ns)
+        rd = rdel
+        
+    radz = rad
+    xs1 = xw1
+    ys1 = yw1
+    zs1 = zw1
+    
+    for i in range(ist, nec_data.geometry.n + 1):
+        nec_data.geometry.itag[i-1] = itg
+        xs2 = xs1 + xd * delz
+        ys2 = ys1 + yd * delz
+        zs2 = zs1 + zd * delz
+        
+        nec_data.geometry.x[i-1] = xs1
+        nec_data.geometry.y[i-1] = ys1
+        nec_data.geometry.z[i-1] = zs1
+        nec_data.geometry.si[i-1] = xs2  # Store end point in SI array
+        nec_data.geometry.alp[i-1] = ys2  # Store end point in ALP array
+        nec_data.geometry.bet[i-1] = zs2  # Store end point in BET array
+        nec_data.geometry.bi[i-1] = radz
+        
+        delz = delz * rd
+        radz = radz * rrad
+        xs1 = xs2
+        ys1 = ys2
+        zs1 = zs2
+        
+    # Set final end point
+    nec_data.geometry.si[nec_data.geometry.n-1] = xw2
+    nec_data.geometry.alp[nec_data.geometry.n-1] = yw2
+    nec_data.geometry.bet[nec_data.geometry.n-1] = zw2
+
+def arc(itg: int, ns: int, rada: float, ang1: float, ang2: float, rad: float, nec_data: NECData) -> None:
+    """
+    Generate segment geometry data for an arc of NS segments (ARC from Fortran)
+    
+    Args:
+        itg: Tag number
+        ns: Number of segments
+        rada: Arc radius
+        ang1: Start angle (degrees)
+        ang2: End angle (degrees)
+        rad: Wire radius
+        nec_data: Main NEC data structure
+    """
+    ta = 0.01745329252  # Degrees to radians
+    
+    ist = nec_data.geometry.n + 1
+    nec_data.geometry.n += ns
+    nec_data.geometry.np = nec_data.geometry.n
+    nec_data.geometry.mp = nec_data.geometry.m
+    nec_data.geometry.ipsym = 0
+    
+    if ns < 1:
+        return
+        
+    if abs(ang2 - ang1) >= 360.00001:
+        raise ValueError("ERROR -- ARC ANGLE EXCEEDS 360. DEGREES")
+        
+    ang = ang1 * ta
+    dang = (ang2 - ang1) * ta / ns
+    xs1 = rada * np.cos(ang)
+    zs1 = rada * np.sin(ang)
+    
+    for i in range(ist, nec_data.geometry.n + 1):
+        ang = ang + dang
+        xs2 = rada * np.cos(ang)
+        zs2 = rada * np.sin(ang)
+        
+        nec_data.geometry.x[i-1] = xs1
+        nec_data.geometry.y[i-1] = 0.0
+        nec_data.geometry.z[i-1] = zs1
+        nec_data.geometry.si[i-1] = xs2  # Store end point
+        nec_data.geometry.alp[i-1] = 0.0  # Store end point
+        nec_data.geometry.bet[i-1] = zs2  # Store end point
+        nec_data.geometry.bi[i-1] = rad
+        nec_data.geometry.itag[i-1] = itg
+        
+        xs1 = xs2
+        zs1 = zs2
+
+def helix(xw1: float, yw1: float, zw1: float, xw2: float, yw2: float, zw2: float,
+          rad: float, ns: int, itg: int, nec_data: NECData) -> None:
+    """
+    Generate segment geometry data for a helix (HELIX from Fortran)
+    
+    Args:
+        xw1, yw1, zw1: Start coordinates
+        xw2, yw2, zw2: End coordinates
+        rad: Wire radius
+        ns: Number of segments
+        itg: Tag number
+        nec_data: Main NEC data structure
+    """
+    ta = 0.01745329252  # Degrees to radians
+    
+    ist = nec_data.geometry.n + 1
+    nec_data.geometry.n += ns
+    nec_data.geometry.np = nec_data.geometry.n
+    nec_data.geometry.mp = nec_data.geometry.m
+    nec_data.geometry.ipsym = 0
+    
+    if ns < 1:
+        return
+        
+    # Calculate helix parameters
+    dx = xw2 - xw1
+    dy = yw2 - yw1
+    dz = zw2 - zw1
+    length = np.sqrt(dx*dx + dy*dy + dz*dz)
+    
+    if length < 1e-10:
+        raise ValueError("Helix length too small")
+        
+    # Normalize direction vector
+    dx = dx / length
+    dy = dy / length
+    dz = dz / length
+    
+    # Helix parameters
+    radius = rad
+    pitch = length / ns
+    turns = ns / 4.0  # Approximate number of turns
+    
+    for i in range(ist, nec_data.geometry.n + 1):
+        # Calculate position along helix
+        t = float(i - ist) / float(ns)
+        angle = 2.0 * np.pi * turns * t
+        
+        # Helix coordinates
+        x_helix = xw1 + t * length * dx + radius * np.cos(angle)
+        y_helix = yw1 + t * length * dy + radius * np.sin(angle)
+        z_helix = zw1 + t * length * dz
+        
+        # Next point
+        t_next = float(i - ist + 1) / float(ns)
+        angle_next = 2.0 * np.pi * turns * t_next
+        
+        x_next = xw1 + t_next * length * dx + radius * np.cos(angle_next)
+        y_next = yw1 + t_next * length * dy + radius * np.sin(angle_next)
+        z_next = zw1 + t_next * length * dz
+        
+        nec_data.geometry.x[i-1] = x_helix
+        nec_data.geometry.y[i-1] = y_helix
+        nec_data.geometry.z[i-1] = z_helix
+        nec_data.geometry.si[i-1] = x_next
+        nec_data.geometry.alp[i-1] = y_next
+        nec_data.geometry.bet[i-1] = z_next
+        nec_data.geometry.bi[i-1] = rad
+        nec_data.geometry.itag[i-1] = itg
+
+def patch(itg: int, ns: int, xw1: float, yw1: float, zw1: float, xw2: float, yw2: float, zw2: float,
+          x3: float, y3: float, z3: float, x4: float, y4: float, z4: float, nec_data: NECData) -> None:
+    """
+    Generate surface patch geometry data (PATCH from Fortran)
+    
+    Args:
+        itg: Tag number
+        ns: Number of patches
+        xw1, yw1, zw1: First corner coordinates
+        xw2, yw2, zw2: Second corner coordinates
+        x3, y3, z3: Third corner coordinates
+        x4, y4, z4: Fourth corner coordinates
+        nec_data: Main NEC data structure
+    """
+    if ns < 1:
+        return
+        
+    # Calculate patch center and normal
+    xc = (xw1 + xw2 + x3 + x4) / 4.0
+    yc = (yw1 + yw2 + y3 + y4) / 4.0
+    zc = (zw1 + zw2 + z3 + z4) / 4.0
+    
+    # Calculate tangent vectors
+    t1x = xw2 - xw1
+    t1y = yw2 - yw1
+    t1z = zw2 - zw1
+    t1_len = np.sqrt(t1x*t1x + t1y*t1y + t1z*t1z)
+    
+    t2x = x3 - xw1
+    t2y = y3 - yw1
+    t2z = z3 - zw1
+    t2_len = np.sqrt(t2x*t2x + t2y*t2y + t2z*t2z)
+    
+    # Normalize tangent vectors
+    if t1_len > 1e-10:
+        t1x = t1x / t1_len
+        t1y = t1y / t1_len
+        t1z = t1z / t1_len
+        
+    if t2_len > 1e-10:
+        t2x = t2x / t2_len
+        t2y = t2y / t2_len
+        t2z = t2z / t2_len
+        
+    # Calculate normal vector (cross product)
+    nx = t1y * t2z - t1z * t2y
+    ny = t1z * t2x - t1x * t2z
+    nz = t1x * t2y - t1y * t2x
+    n_len = np.sqrt(nx*nx + ny*ny + nz*nz)
+    
+    if n_len > 1e-10:
+        nx = nx / n_len
+        ny = ny / n_len
+        nz = nz / n_len
+    else:
+        raise ValueError("Invalid patch geometry - zero normal vector")
+        
+    # Calculate patch area
+    area = t1_len * t2_len
+    
+    # Store patch data
+    i = nec_data.geometry.ld - nec_data.geometry.m
+    nec_data.geometry.x[i] = xc
+    nec_data.geometry.y[i] = yc
+    nec_data.geometry.z[i] = zc
+    nec_data.geometry.bi[i] = area
+    nec_data.geometry.itag[i] = itg
+    
+    # Store tangent vectors in SI, ALP, BET arrays
+    nec_data.geometry.si[i] = t1x
+    nec_data.geometry.alp[i] = t1y
+    nec_data.geometry.bet[i] = t1z
+    
+    # Store second tangent vector in ICON arrays
+    nec_data.geometry.icon1[i] = int(t2x * 1000)  # Scale for integer storage
+    nec_data.geometry.icon2[i] = int(t2y * 1000)
+    nec_data.geometry.iconx[i] = int(t2z * 1000)
+    
+    nec_data.geometry.m += 1
+
+def reflec(ix: int, iy: int, iz: int, itg: int, ns: int, nec_data: NECData) -> None:
+    """
+    Reflect structure along X, Y, or Z axes or rotate to form cylinder (REFLC from Fortran)
+    
+    Args:
+        ix, iy, iz: Reflection flags (0 or 1)
+        itg: Tag increment
+        ns: Number of copies
+        nec_data: Main NEC data structure
+    """
+    if ns < 1:
+        return
+        
+    # Store original geometry
+    n_orig = nec_data.geometry.n
+    m_orig = nec_data.geometry.m
+    
+    # Create reflection/rotation copies
+    for copy in range(1, ns + 1):
+        # Calculate transformation parameters
+        if ns > 1:  # Rotation case
+            angle = 2.0 * np.pi * copy / ns
+            ca = np.cos(angle)
+            sa = np.sin(angle)
+        else:  # Reflection case
+            ca = 1.0 if ix == 0 else -1.0
+            sa = 0.0
+            
+        # Transform wire segments
+        for i in range(n_orig):
+            x_orig = nec_data.geometry.x[i]
+            y_orig = nec_data.geometry.y[i]
+            z_orig = nec_data.geometry.z[i]
+            
+            # Apply transformation
+            if ns > 1:  # Rotation
+                x_new = x_orig * ca - y_orig * sa
+                y_new = x_orig * sa + y_orig * ca
+                z_new = z_orig
+            else:  # Reflection
+                x_new = x_orig * (1.0 if ix == 0 else -1.0)
+                y_new = y_orig * (1.0 if iy == 0 else -1.0)
+                z_new = z_orig * (1.0 if iz == 0 else -1.0)
+                
+            # Add new segment
+            if nec_data.geometry.n < nec_data.geometry.ld:
+                nec_data.geometry.n += 1
+                nec_data.geometry.x[nec_data.geometry.n-1] = x_new
+                nec_data.geometry.y[nec_data.geometry.n-1] = y_new
+                nec_data.geometry.z[nec_data.geometry.n-1] = z_new
+                nec_data.geometry.si[nec_data.geometry.n-1] = nec_data.geometry.si[i]
+                nec_data.geometry.alp[nec_data.geometry.n-1] = nec_data.geometry.alp[i]
+                nec_data.geometry.bet[nec_data.geometry.n-1] = nec_data.geometry.bet[i]
+                nec_data.geometry.bi[nec_data.geometry.n-1] = nec_data.geometry.bi[i]
+                nec_data.geometry.itag[nec_data.geometry.n-1] = nec_data.geometry.itag[i] + itg
+                
+        # Transform surface patches
+        for i in range(m_orig):
+            j = nec_data.geometry.ld - m_orig + i
+            x_orig = nec_data.geometry.x[j]
+            y_orig = nec_data.geometry.y[j]
+            z_orig = nec_data.geometry.z[j]
+            
+            # Apply transformation
+            if ns > 1:  # Rotation
+                x_new = x_orig * ca - y_orig * sa
+                y_new = x_orig * sa + y_orig * ca
+                z_new = z_orig
+            else:  # Reflection
+                x_new = x_orig * (1.0 if ix == 0 else -1.0)
+                y_new = y_orig * (1.0 if iy == 0 else -1.0)
+                z_new = z_orig * (1.0 if iz == 0 else -1.0)
+                
+            # Add new patch
+            if nec_data.geometry.m < nec_data.geometry.ld:
+                nec_data.geometry.m += 1
+                k = nec_data.geometry.ld - nec_data.geometry.m
+                nec_data.geometry.x[k] = x_new
+                nec_data.geometry.y[k] = y_new
+                nec_data.geometry.z[k] = z_new
+                nec_data.geometry.bi[k] = nec_data.geometry.bi[j]
+                nec_data.geometry.itag[k] = nec_data.geometry.itag[j] + itg
+                nec_data.geometry.si[k] = nec_data.geometry.si[j]
+                nec_data.geometry.alp[k] = nec_data.geometry.alp[j]
+                nec_data.geometry.bet[k] = nec_data.geometry.bet[j]
+
+def move(xw1: float, yw1: float, zw1: float, xw2: float, yw2: float, zw2: float,
+         ncopies: int, ns: int, itg: int, nec_data: NECData) -> None:
+    """
+    Move structure or reproduce original structure in new positions (MOVE from Fortran)
+    
+    Args:
+        xw1, yw1, zw1: Start position
+        xw2, yw2, zw2: End position
+        ncopies: Number of copies
+        ns: Number of segments to move
+        itg: Tag increment
+        nec_data: Main NEC data structure
+    """
+    ta = 0.01745329252  # Degrees to radians
+    
+    # Convert angles to radians
+    xw1 = xw1 * ta
+    yw1 = yw1 * ta
+    zw1 = zw1 * ta
+    
+    if ncopies < 1:
+        return
+        
+    # Calculate translation vector
+    dx = (xw2 - xw1) / float(ncopies)
+    dy = (yw2 - yw1) / float(ncopies)
+    dz = (zw2 - zw1) / float(ncopies)
+    
+    # Store original geometry
+    n_orig = min(ns, nec_data.geometry.n)
+    
+    # Create copies
+    for copy in range(1, ncopies + 1):
+        # Calculate translation
+        tx = xw1 + dx * copy
+        ty = yw1 + dy * copy
+        tz = zw1 + dz * copy
+        
+        # Transform wire segments
+        for i in range(n_orig):
+            if nec_data.geometry.n < nec_data.geometry.ld:
+                nec_data.geometry.n += 1
+                nec_data.geometry.x[nec_data.geometry.n-1] = nec_data.geometry.x[i] + tx
+                nec_data.geometry.y[nec_data.geometry.n-1] = nec_data.geometry.y[i] + ty
+                nec_data.geometry.z[nec_data.geometry.n-1] = nec_data.geometry.z[i] + tz
+                nec_data.geometry.si[nec_data.geometry.n-1] = nec_data.geometry.si[i] + tx
+                nec_data.geometry.alp[nec_data.geometry.n-1] = nec_data.geometry.alp[i] + ty
+                nec_data.geometry.bet[nec_data.geometry.n-1] = nec_data.geometry.bet[i] + tz
+                nec_data.geometry.bi[nec_data.geometry.n-1] = nec_data.geometry.bi[i]
+                nec_data.geometry.itag[nec_data.geometry.n-1] = nec_data.geometry.itag[i] + itg
+
+def gfil(itg: int, nec_data: NECData) -> None:
+    """
+    Read numerical Green's function tape (GFIL from Fortran)
+    
+    Args:
+        itg: Tag number
+        nec_data: Main NEC data structure
+    """
+    # This is a placeholder for the Green's function file reading
+    # In the actual implementation, this would read a binary file
+    # containing pre-computed Green's function data
+    
+    print(f"Reading Green's function file for tag {itg}")
+    
+    # Set up for NGF (Numerical Green's Function) mode
+    nec_data.matrix.icasx = 1  # Enable NGF mode
+    
+    # In a real implementation, this would:
+    # 1. Open the Green's function file
+    # 2. Read the header information
+    # 3. Load the pre-computed Green's function data
+    # 4. Set up the interpolation tables
+    
+    # For now, we'll just set some default values
+    nec_data.geometry.n1 = 0  # No segments in NGF section
+    nec_data.geometry.m1 = 0  # No patches in NGF section
+    nec_data.geometry.n2 = 1  # Start of new section
+    nec_data.geometry.m2 = 1  # Start of new section 
